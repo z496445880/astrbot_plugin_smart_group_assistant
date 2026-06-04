@@ -17,6 +17,7 @@ class ConflictChecker:
     """
 
     def __init__(self, config: dict):
+        self.config = config
         self.courses: list[dict] = []
 
     def load(self) -> None:
