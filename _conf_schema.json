@@ -58,6 +58,18 @@
         "hint": "男 / 女",
         "default": ""
       },
+      "college": {
+        "description": "学院",
+        "type": "string",
+        "hint": "如：计算机学院",
+        "default": ""
+      },
+      "major": {
+        "description": "专业",
+        "type": "string",
+        "hint": "如：计算机科学与技术",
+        "default": ""
+      },
       "class_name": {
         "description": "班级",
         "type": "string",
