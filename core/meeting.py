@@ -9,7 +9,6 @@ from typing import Optional
 from astrbot.api import logger
 
 from .classifier import extract_meeting_info
-from .schedule import ScheduleManager
 from .utils import extract_time_from_text, notify_owner, poke_user
 
 
@@ -20,7 +19,7 @@ _reminder_tasks: dict[str, asyncio.Task] = {}
 async def process_meeting(
     event,
     config: dict,
-    schedule: ScheduleManager,
+    checker,
     provider,
     context,
 ) -> None:
@@ -28,9 +27,9 @@ async def process_meeting(
 
     流程：
     1. 提取会议信息
-    2. 加入日程表
-    3. 通知主人
-    4. 设置会前提醒
+    2. 通知主人
+    3. 设置会前提醒
+    （日程持久化由 astrbot_plugin_reminder 负责）
     """
     message_text = event.message_str.strip()
 
@@ -59,19 +58,7 @@ async def process_meeting(
     location = meeting_info.get("meeting_location", "未知地点")
     notes = meeting_info.get("meeting_notes", "")
 
-    # ── 步骤2: 加入日程表 ──
-    schedule_entry = {
-        "name": meeting_name,
-        "datetime": meeting_dt.isoformat(),
-        "location": location,
-        "notes": notes,
-    }
-    added = schedule.add_meeting(schedule_entry)
-    if not added:
-        logger.info(f"[智能群助手] 会议 {meeting_name} 已在日程中，跳过添加")
-        return
-
-    # ── 步骤3: 通知主人 ──
+    # ── 步骤2: 通知主人 ──
     owner_qq = config.get("owner_qq", "")
     if owner_qq:
         await poke_user(context, owner_qq)
@@ -89,7 +76,7 @@ async def process_meeting(
         )
         await notify_owner(context, config, summary)
 
-    # ── 步骤4: 设置会前提醒 ──
+    # ── 步骤3: 设置会前提醒 ──
     reminder_minutes = config.get("reminder_minutes", 15)
     reminder_dt = meeting_dt - timedelta(minutes=reminder_minutes)
     now = datetime.now()

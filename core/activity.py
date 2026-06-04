@@ -8,14 +8,14 @@ from astrbot.api import logger
 
 from .classifier import extract_activity_info, analyze_registration, match_interests_by_llm
 from .registration import execute_registration
-from .schedule import ScheduleManager
+from .schedule import ConflictChecker
 from .utils import extract_time_from_text, notify_owner, poke_user
 
 
 async def process_activity(
     event,
     config: dict,
-    schedule: ScheduleManager,
+    checker: ConflictChecker,
     provider,
     context,
 ) -> None:
@@ -57,7 +57,7 @@ async def process_activity(
             activity_dt = extract_time_from_text(message_text)
 
         if activity_dt:
-            has_conflict, conflict_item = schedule.check_conflict_with_range(
+            has_conflict, conflict_item = checker.check(
                 activity_dt, duration_minutes=60
             )
             if has_conflict:
@@ -84,20 +84,7 @@ async def process_activity(
         results.append("未检测到报名方式，如需报名请手动处理")
         logger.info(f"[智能群助手] 活动 {activity_name} 未检测到报名方式")
 
-    # ── 步骤5: 加入日程表 ──
-    schedule_note = ""
-    if activity_dt:
-        schedule_entry = {
-            "name": f"【活动】{activity_name}",
-            "datetime": activity_dt.isoformat(),
-            "location": activity_info.get("activity_location", ""),
-            "notes": f"来源: 群聊自动识别。报名方式: {reg_analysis.get('method_detail', '未知') if reg_analysis else '未知'}",
-        }
-        if schedule.add_meeting(schedule_entry):
-            schedule_note = f"\n📅 已加入日程表"
-            logger.info(f"[智能群助手] 活动 {activity_name} 已加入日程")
-
-    # ── 步骤6: 戳一戳 + 通知主人 ──
+    # ── 步骤5: 戳一揿 + 通知主人 ──
     owner_qq = config.get("owner_qq", "")
     if owner_qq:
         await poke_user(context, owner_qq)
@@ -112,8 +99,7 @@ async def process_activity(
             f"🎯 活动：{activity_name}\n"
             f"🕐 时间：{time_display}\n"
             f"📍 地点：{location}\n"
-            f"🔧 机器人已执行：\n{operations}"
-            f"{schedule_note}\n"
+            f"🔧 机器人已执行：\n{operations}\n"
             f"━━━━━━━━━━━━━━"
         )
         await notify_owner(context, config, summary)

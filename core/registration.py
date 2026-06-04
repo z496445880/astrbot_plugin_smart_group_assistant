@@ -212,8 +212,14 @@ async def execute_registration(
 
     owner_info = config.get("owner_info", {})
 
-    # ── 1. 私聊报名 ──
-    if method_type in ("private_message", "send_info"):
+    # ── 1. 私聊报名（如果需要） ──
+    needs_private_msg = method_type in ("private_message", "send_info")
+    # 即使 method_type 不是 private_message，如果报名方式描述中包含"私聊/私信"也尝试
+    method_detail = reg_analysis.get("method_detail", "")
+    if not needs_private_msg and ("私聊" in method_detail or "私信" in method_detail):
+        needs_private_msg = True
+
+    if needs_private_msg:
         if target_qq and target_qq.isdigit():
             success = await send_private_message_to_publisher(
                 event, target_qq, owner_info, activity_name, required_info
@@ -224,7 +230,7 @@ async def execute_registration(
                 results.append(f"私聊 {target_qq} 发送报名信息失败")
         else:
             # 尝试从原文中找QQ号
-            fallback_qq = extract_qq_group_id(reg_analysis.get("method_detail", ""))
+            fallback_qq = extract_qq_group_id(method_detail)
             if fallback_qq:
                 success = await send_private_message_to_publisher(
                     event, fallback_qq, owner_info, activity_name, required_info
@@ -234,11 +240,23 @@ async def execute_registration(
                 else:
                     results.append(f"私聊 {fallback_qq} 发送报名信息失败")
             else:
-                logger.info(f"[智能群助手] 报名方式要求私聊但未找到目标QQ")
-                results.append(f"报名需私聊，但未找到目标QQ号，请手动处理（AI分析: {action_suggestion}）")
+                logger.info(f"[智能群助手] 报名方式要求私聊但未找到目标QQ，使用发送者QQ兜底")
+                if target_qq and target_qq.isdigit():
+                    success = await send_private_message_to_publisher(
+                        event, target_qq, owner_info, activity_name, required_info
+                    )
+                    if success:
+                        results.append(f"已私聊 {target_qq} 发送报名信息")
+                    else:
+                        results.append(f"私聊 {target_qq} 失败")
+                else:
+                    results.append(f"报名需私聊但未找到目标QQ，请手动处理")
 
-    # ── 2. 加群报名 ──
-    elif method_type == "join_group":
+    # ── 2. 加群报名（独立判断，可以和私聊同时执行）──
+    # 只要原文中有群号，无论 method_type 是什么，都尝试加群
+    needs_join_group = method_type == "join_group" or bool(target_group_id)
+
+    if needs_join_group:
         if target_group_id and target_group_id.isdigit():
             reason = f"我对「{activity_name}」活动感兴趣，申请加群"
             success = await join_qq_group(event, target_group_id, reason)
@@ -247,8 +265,8 @@ async def execute_registration(
             else:
                 results.append(f"申请加群 {target_group_id} 失败（可能需手动加群）")
         else:
-            # 尝试从原文提取群号
-            extracted = extract_qq_group_id(reg_analysis.get("method_detail", ""))
+            # 尝试从原文或报名方式描述中提取群号
+            extracted = extract_qq_group_id(method_detail) or extract_qq_group_id(str(activity_info))
             if extracted:
                 reason = f"我对「{activity_name}」活动感兴趣，申请加群"
                 success = await join_qq_group(event, extracted, reason)
@@ -257,12 +275,11 @@ async def execute_registration(
                 else:
                     results.append(f"申请加群 {extracted} 失败（可能需手动加群）")
             else:
-                results.append(f"报名需加群，但未找到群号，请手动处理（AI分析: {action_suggestion}）")
+                results.append(f"报名需加群但未找到群号，请手动处理")
 
-    # ── 3. 其他报名方式 ──
-    else:
-        # 对于 scan_qr / fill_form / other，机器人无法自动操作
-        detail = reg_analysis.get("method_detail", "")
+    # ── 3. 其他报名方式（没有私聊也没有加群）──
+    if not needs_private_msg and not needs_join_group:
+        detail = method_detail
         results.append(f"报名方式: {detail}（需手动操作）")
         if action_suggestion:
             results.append(f"AI建议: {action_suggestion}")

@@ -1,7 +1,8 @@
 """
 smart_group_assistant - 智能群助手插件
 
-自动识别群聊中的活动/会议通知，执行智能报名、日程管理和每日群聊整理。
+自动识别群聊中的活动/会议通知，执行智能报名和每日群聊整理。
+课程冲突检测基于内置课程表，日程查询和提醒由 astrbot_plugin_reminder 负责。
 适配平台：aiocqhttp (OneBot V11 / Napcat)
 """
 
@@ -12,14 +13,14 @@ from apscheduler.triggers.cron import CronTrigger
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.star import Context, Star, StarTools
+from astrbot.api.star import Context, Star
 
 from .core.activity import process_activity
 from .core.classifier import classify_message
 from .core.daily_summary import run_daily_summary
 from .core.meeting import cancel_all_reminders, process_meeting
 from .core.message_store import MessageStore
-from .core.schedule import ScheduleManager
+from .core.schedule import ConflictChecker
 
 
 class SmartGroupAssistant(Star):
@@ -27,9 +28,11 @@ class SmartGroupAssistant(Star):
 
     功能：
     1. 自动监听群消息，分类为活动/会议/其他
-    2. 活动通知：兴趣匹配 → 时间冲突检测 → 提取报名方式 → 执行报名 → 通知主人
-    3. 会议通知：提取信息 → 加入日程 → 通知主人 → 会前提醒
+    2. 活动通知：LLM兴趣匹配 → 时间冲突检测 → 报名分析 → 执行报名 → 通知主人
+    3. 会议通知：提取信息 → 通知主人 → 会前提醒
     4. 每日群聊整理：定时收集消息 → LLM 生成摘要 → 发送给主人
+
+    日程查询/提醒由 astrbot_plugin_reminder 提供。
     """
 
     def __init__(self, context: Context, config: AstrBotConfig):
@@ -40,8 +43,8 @@ class SmartGroupAssistant(Star):
         keep_hours = int(config.get("message_keep_hours", 24))
         self.message_store = MessageStore(keep_hours=keep_hours)
 
-        # 日程管理器
-        self.schedule_manager: ScheduleManager | None = None
+        # 课程冲突检测器
+        self.conflict_checker = ConflictChecker(dict(self.config))
 
         # 定时任务调度器
         self.scheduler: AsyncIOScheduler | None = None
@@ -49,15 +52,11 @@ class SmartGroupAssistant(Star):
         logger.info("[智能群助手] 插件实例已创建")
 
     async def initialize(self) -> None:
-        """插件初始化：加载日程、启动定时任务。"""
+        """插件初始化：加载课程表、启动定时任务。"""
         logger.info("[智能群助手] 正在初始化...")
 
-        # 初始化日程管理器
-        self.schedule_manager = ScheduleManager(
-            config=dict(self.config),
-            plugin_data_dir=StarTools.get_data_dir("smart_group_assistant"),
-        )
-        await self.schedule_manager.initialize()
+        # 加载课程表用于冲突检测
+        self.conflict_checker.load()
 
         # 初始化定时任务调度器
         self.scheduler = AsyncIOScheduler()
@@ -131,7 +130,7 @@ class SmartGroupAssistant(Star):
             await process_activity(
                 event,
                 dict(self.config),
-                self.schedule_manager,
+                self.conflict_checker,
                 provider,
                 self.context,
             )
@@ -140,7 +139,7 @@ class SmartGroupAssistant(Star):
             await process_meeting(
                 event,
                 dict(self.config),
-                self.schedule_manager,
+                self.conflict_checker,
                 provider,
                 self.context,
             )
@@ -190,20 +189,14 @@ class SmartGroupAssistant(Star):
     # ══════════════════════════════════════════════════════════
 
     async def _get_provider(self, event: AstrMessageEvent):
-        """获取配置的 LLM Provider。
-
-        优先使用插件配置中指定的 Provider，否则使用当前会话的默认 Provider。
-        """
+        """获取配置的 LLM Provider。"""
         provider_id = self.config.get("llm_provider", "")
         if provider_id:
             return self.context.get_provider_by_id(provider_id)
         return self.context.get_using_provider(umo=event.unified_msg_origin)
 
     async def _get_provider_direct(self):
-        """直接获取 LLM Provider（无 event 上下文时使用）。
-
-        优先使用插件配置中指定的 Provider，否则使用全局默认 Provider。
-        """
+        """直接获取 LLM Provider（无 event 上下文时使用）。"""
         provider_id = self.config.get("llm_provider", "")
         if provider_id:
             return self.context.get_provider_by_id(provider_id)
