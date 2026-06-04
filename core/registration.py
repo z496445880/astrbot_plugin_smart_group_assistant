@@ -168,8 +168,13 @@ async def execute_registration(
         results.append("未检测到报名方式，请手动报名")
         return results
 
-    # 确定目标QQ号：优先用报名分析中的，其次用活动信息中的
-    target_qq = reg_analysis.get("target_qq", "") or activity_info.get("organizer_qq", "")
+    # 确定目标QQ号：优先用LLM提取的 → 活动信息中的 → 消息发送者本人（发布者就是发消息的人）
+    sender_qq = str(event.get_sender_id()) if hasattr(event, "get_sender_id") else ""
+    target_qq = (
+        reg_analysis.get("target_qq", "")
+        or activity_info.get("organizer_qq", "")
+        or sender_qq  # 兜底：群消息的发送者就是活动发布者
+    )
     target_group_id = reg_analysis.get("target_group_id", "") or activity_info.get("group_id", "")
     required_info = reg_analysis.get("required_info", "")
     action_suggestion = reg_analysis.get("action_suggestion", "")
