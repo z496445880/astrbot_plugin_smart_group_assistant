@@ -1,0 +1,15 @@
+name: smart_group_assistant
+display_name: 智能群助手
+short_desc: 自动识别群聊活动/会议通知，智能报名，日程管理，每日群聊整理
+desc: >
+  智能群助手是一款面向 QQ 群的综合管理插件。
+  - 自动监听群消息，调用 LLM 对消息分类（活动/会议/其他）
+  - 活动通知：兴趣匹配、时间冲突检测、自动提取报名方式并执行报名
+  - 会议通知：提取信息加入日程、会前提醒
+  - 每日群聊整理：定时生成群聊摘要（热点话题、重要通知、待办事项）
+  - 支持课程表导入（JSON/.ics），与活动/会议时间冲突检测
+version: v1.0.0
+author: zhengpeng
+support_platforms:
+  - aiocqhttp
+astrbot_version: ">=4.16"

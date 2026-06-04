@@ -1,0 +1,107 @@
+{
+  "llm_provider": {
+    "description": "LLM 提供商",
+    "type": "string",
+    "hint": "选择用于消息分类、信息提取和群聊整理的 LLM 提供商（推荐使用 DeepSeek）。留空则使用当前会话的默认提供商。",
+    "_special": "select_provider"
+  },
+  "group_whitelist": {
+    "description": "监听群号列表",
+    "type": "list",
+    "hint": "填写需要监听的QQ群号列表。留空则监听所有群。格式：每行一个群号，如 547540978",
+    "default": []
+  },
+  "owner_qq": {
+    "description": "主人QQ号",
+    "type": "string",
+    "hint": "接收活动/会议通知、每日整理的QQ号（机器人主人）。所有通知将发送到此QQ号。",
+    "default": ""
+  },
+  "interest_keywords": {
+    "description": "兴趣关键词（模糊匹配）",
+    "type": "list",
+    "hint": "活动文本中包含任一关键词即视为匹配。如：音乐节、听歌会、livehouse。每行一个关键词。",
+    "default": []
+  },
+  "exact_match_keywords": {
+    "description": "精确匹配关键词",
+    "type": "list",
+    "hint": "活动文本必须包含该完整短语才算匹配。如：中南路地铁站志愿活动。每行一个短语。",
+    "default": []
+  },
+  "owner_info": {
+    "description": "主人报名信息",
+    "type": "object",
+    "hint": "自动报名时发送给活动发布者的个人信息。所有字段都会包含在私聊消息中。",
+    "items": {
+      "name": {
+        "description": "姓名",
+        "type": "string",
+        "hint": "你的真实姓名",
+        "default": ""
+      },
+      "student_id": {
+        "description": "学号",
+        "type": "string",
+        "hint": "你的学号",
+        "default": ""
+      },
+      "id_card": {
+        "description": "身份证号",
+        "type": "string",
+        "hint": "你的身份证号码",
+        "default": ""
+      },
+      "gender": {
+        "description": "性别",
+        "type": "string",
+        "hint": "男 / 女",
+        "default": ""
+      },
+      "class_name": {
+        "description": "班级",
+        "type": "string",
+        "hint": "如：计算机科学2024级1班",
+        "default": ""
+      },
+      "grade": {
+        "description": "年级",
+        "type": "string",
+        "hint": "如：2024级",
+        "default": ""
+      }
+    }
+  },
+  "course_schedule": {
+    "description": "课程表（JSON格式）",
+    "type": "text",
+    "hint": "以JSON格式填写课程表。每门课包含 name(课程名)、day(星期几，1-7)、start_time(开始时间 HH:MM)、end_time(结束时间 HH:MM)。示例：[{\"name\":\"高等数学\",\"day\":1,\"start_time\":\"08:00\",\"end_time\":\"09:35\"}]",
+    "default": "[]",
+    "editor_mode": true,
+    "editor_language": "json"
+  },
+  "ics_file_path": {
+    "description": ".ics 日历文件路径",
+    "type": "string",
+    "hint": "如果使用 .ics 格式的课程表文件，填写文件的绝对路径。如 D:/calendar.ics。留空则使用上方JSON课程表。优先级高于JSON课程表。",
+    "default": ""
+  },
+  "reminder_minutes": {
+    "description": "会前提醒提前量（分钟）",
+    "type": "int",
+    "hint": "会议开始前多少分钟发送提醒。默认为15分钟。",
+    "default": 15
+  },
+  "summary_time": {
+    "description": "每日群聊整理时间",
+    "type": "string",
+    "hint": "每天执行群聊整理的时间，格式 HH:MM（24小时制）。默认为 23:00。",
+    "default": "23:00"
+  },
+  "message_keep_hours": {
+    "description": "消息保留时长（小时）",
+    "type": "int",
+    "hint": "群消息在本地存储的保留时长，用于每日整理。默认24小时。",
+    "default": 24
+  }
+}
