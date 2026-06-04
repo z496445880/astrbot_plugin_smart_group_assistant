@@ -46,12 +46,6 @@
         "hint": "你的学号",
         "default": ""
       },
-      "id_card": {
-        "description": "身份证号",
-        "type": "string",
-        "hint": "你的身份证号码",
-        "default": ""
-      },
       "gender": {
         "description": "性别",
         "type": "string",

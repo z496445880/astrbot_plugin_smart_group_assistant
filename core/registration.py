@@ -8,45 +8,76 @@ from .utils import extract_qq_group_id
 
 
 def _build_registration_message(owner_info: dict, activity_name: str, required_info: str = "") -> str:
-    """根据主人的个人信息构建报名消息。
+    """根据主人的个人信息和报名要求构建消息。
+
+    只发送报名方实际要求的字段，不泄露多余隐私。
+    如果报名方未明确要求，则默认只发送 姓名+学号+学院+专业+班级。
 
     Args:
         owner_info: 主人的个人信息字典
         activity_name: 活动名称
-        required_info: 报名方要求提供的信息描述（如"姓名+学号"），用于优化消息格式
+        required_info: 报名方要求提供的信息描述（如"姓名+学号"，LLM从原文提取）
 
     Returns:
         格式化的报名消息。
     """
-    name = owner_info.get("name", "")
-    student_id = owner_info.get("student_id", "")
-    id_card = owner_info.get("id_card", "")
-    gender = owner_info.get("gender", "")
-    college = owner_info.get("college", "")
-    major = owner_info.get("major", "")
-    class_name = owner_info.get("class_name", "")
-    grade = owner_info.get("grade", "")
+    # 字段映射：required_info 中的中文 → owner_info 的 key
+    FIELD_MAP = {
+        "姓名": "name",
+        "学号": "student_id",
+        "性别": "gender",
+        "学院": "college",
+        "专业": "major",
+        "班级": "class_name",
+        "年级": "grade",
+    }
+
+    # 解析 required_info，确定需要哪些字段
+    if required_info:
+        needed_keys = set()
+        for cn_name, key in FIELD_MAP.items():
+            if cn_name in required_info:
+                needed_keys.add(key)
+        # 如果 LLM 成功识别了要求，只发送要求的字段
+        if needed_keys:
+            logger.info(f"[智能群助手] 报名要求字段: {needed_keys}")
+            return _format_message(
+                owner_info, activity_name, include_only=needed_keys
+            )
+
+    # 兜底：报名方未明确要求时，默认不发身份证号（保护隐私）
+    logger.info("[智能群助手] 报名未明确要求字段，默认发送非敏感信息")
+    default_keys = {"name", "student_id", "college", "major", "grade", "class_name", "gender"}
+    return _format_message(owner_info, activity_name, include_only=default_keys)
+
+
+def _format_message(
+    owner_info: dict,
+    activity_name: str,
+    include_only: set,
+) -> str:
+    """按需格式化报名消息，只包含指定字段。"""
+    FIELD_LABELS = [
+        ("name", "姓名"),
+        ("gender", "性别"),
+        ("college", "学院"),
+        ("major", "专业"),
+        ("student_id", "学号"),
+        ("grade", "年级"),
+        ("class_name", "班级"),
+    ]
 
     lines = [
         f"你好！我对你发布的「{activity_name}」活动很感兴趣，以下是我的报名信息：",
         "",
     ]
-    if name:
-        lines.append(f"姓名：{name}")
-    if gender:
-        lines.append(f"性别：{gender}")
-    if college:
-        lines.append(f"学院：{college}")
-    if major:
-        lines.append(f"专业：{major}")
-    if student_id:
-        lines.append(f"学号：{student_id}")
-    if grade:
-        lines.append(f"年级：{grade}")
-    if class_name:
-        lines.append(f"班级：{class_name}")
-    if id_card:
-        lines.append(f"身份证号：{id_card}")
+
+    for key, label in FIELD_LABELS:
+        if key in include_only:
+            value = owner_info.get(key, "")
+            if value:
+                lines.append(f"{label}：{value}")
+
     lines.append("")
     lines.append("期待参与！谢谢！")
 
