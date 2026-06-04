@@ -18,7 +18,7 @@ from astrbot.api.star import Context, Star
 from .core.activity import process_activity
 from .core.classifier import classify_message
 from .core.daily_summary import run_daily_summary
-from .core.meeting import cancel_all_reminders, process_meeting
+from .core.meeting import process_meeting
 from .core.message_store import MessageStore
 from .core.schedule import ConflictChecker
 
@@ -68,9 +68,6 @@ class SmartGroupAssistant(Star):
     async def terminate(self) -> None:
         """插件卸载时清理资源。"""
         logger.info("[智能群助手] 正在清理资源...")
-
-        # 取消所有会前提醒
-        cancel_all_reminders()
 
         # 停止定时任务
         if self.scheduler and self.scheduler.running:

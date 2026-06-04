@@ -126,6 +126,8 @@ async def send_private_message_to_publisher(
 async def join_qq_group(event, group_id: str, reason: str = "") -> bool:
     """尝试申请加入指定的QQ群。
 
+    QQ 机器人主动加群受平台限制，大部分协议端不支持。会尝试所有已知的 API。
+
     Args:
         event: AstrMessageEvent 对象
         group_id: 目标群号
@@ -138,39 +140,31 @@ async def join_qq_group(event, group_id: str, reason: str = "") -> bool:
         logger.warning(f"[智能群助手] 无效的群号: {group_id}")
         return False
 
-    try:
-        client = event.bot
+    client = event.bot
+    join_msg = reason or "申请加入群聊"
 
-        # Napcat 扩展 API
+    # 依次尝试各种 Napcat / OneBot V11 扩展 API
+    apis_to_try = [
+        # Napcat 新版: set_group_join_request
+        ("set_group_join_request", {"group_id": int(group_id), "message": join_msg, "action": "invite"}),
+        # Napcat: 主动申请加群
+        ("send_group_join_request", {"group_id": int(group_id), "message": join_msg}),
+        # LLOneBot / Lagrange 可能支持的
+        ("join_group", {"group_id": int(group_id), "message": join_msg}),
+        # Napcat 旧版
+        ("_send_group_join_request", {"group_id": int(group_id), "message": join_msg}),
+    ]
+
+    for api_name, params in apis_to_try:
         try:
-            await client.api.call_action(
-                "send_group_join_request_async",
-                group_id=int(group_id),
-                message=reason or "申请加入群聊",
-            )
-            logger.info(f"[智能群助手] 已向群 {group_id} 发送加群申请(Napcat)")
+            await client.api.call_action(api_name, **params)
+            logger.info(f"[智能群助手] 加群成功 [{api_name}]: {group_id}")
             return True
         except Exception:
-            pass
+            continue
 
-        # 通用扩展 API
-        try:
-            await client.api.call_action(
-                "send_group_join_request",
-                group_id=int(group_id),
-                message=reason or "我是对活动感兴趣的成员",
-            )
-            logger.info(f"[智能群助手] 已向群 {group_id} 发送加群申请")
-            return True
-        except Exception:
-            pass
-
-        logger.warning(f"[智能群助手] 所有加群方式均失败: {group_id}")
-        return False
-
-    except Exception as e:
-        logger.error(f"[智能群助手] 申请加群 {group_id} 失败: {e}")
-        return False
+    logger.warning(f"[智能群助手] 所有加群 API 均失败: {group_id}（QQ机器人主动加群受平台限制，属正常现象）")
+    return False
 
 
 async def execute_registration(
@@ -263,7 +257,7 @@ async def execute_registration(
             if success:
                 results.append(f"已申请加群 {target_group_id}")
             else:
-                results.append(f"申请加群 {target_group_id} 失败（可能需手动加群）")
+                results.append(f"申请加群 {target_group_id} 失败（QQ机器人主动加群受平台限制，请手动搜索群号申请加入）")
         else:
             # 尝试从原文或报名方式描述中提取群号
             extracted = extract_qq_group_id(method_detail) or extract_qq_group_id(str(activity_info))
@@ -273,7 +267,7 @@ async def execute_registration(
                 if success:
                     results.append(f"已申请加群 {extracted}")
                 else:
-                    results.append(f"申请加群 {extracted} 失败（可能需手动加群）")
+                    results.append(f"申请加群 {extracted} 失败（QQ机器人主动加群受平台限制，请手动搜索群号申请加入）")
             else:
                 results.append(f"报名需加群但未找到群号，请手动处理")
 

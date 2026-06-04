@@ -1,19 +1,14 @@
-"""会议通知处理模块：提取信息 → 加入日程 → 通知主人 → 会前提醒。"""
+"""会议通知处理模块：提取信息 → 通知主人 → 通过 reminder 插件设置提醒。"""
 
 from __future__ import annotations
 
-import asyncio
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from astrbot.api import logger
 
 from .classifier import extract_meeting_info
 from .utils import extract_time_from_text, notify_owner, poke_user
-
-
-# 存储已调度的提醒任务，用于清理
-_reminder_tasks: dict[str, asyncio.Task] = {}
 
 
 async def process_meeting(
@@ -27,9 +22,8 @@ async def process_meeting(
 
     流程：
     1. 提取会议信息
-    2. 通知主人
-    3. 设置会前提醒
-    （日程持久化由 astrbot_plugin_reminder 负责）
+    2. 通知主人（戳一戳 + 消息）
+    3. 通过 LLM Agent 调用 astrbot_plugin_reminder 的 set_reminder_or_task 创建提醒
     """
     message_text = event.message_str.strip()
 
@@ -57,103 +51,52 @@ async def process_meeting(
 
     location = meeting_info.get("meeting_location", "未知地点")
     notes = meeting_info.get("meeting_notes", "")
+    reminder_minutes = config.get("reminder_minutes", 15)
+    formatted_time = meeting_dt.strftime("%Y-%m-%d %H:%M")
 
     # ── 步骤2: 通知主人 ──
     owner_qq = config.get("owner_qq", "")
     if owner_qq:
         await poke_user(context, owner_qq)
 
-        formatted_time = meeting_dt.strftime("%m月%d日 %H:%M")
         summary = (
-            f"📋 【会议已加入日程】\n"
+            f"📋 【检测到会议通知】\n"
             f"━━━━━━━━━━━━━━\n"
             f"📌 会议：{meeting_name}\n"
-            f"🕐 时间：{formatted_time}\n"
+            f"🕐 时间：{meeting_dt.strftime('%m月%d日 %H:%M')}\n"
             f"📍 地点：{location}\n"
             f"📝 备注：{notes if notes else '无'}\n"
             f"━━━━━━━━━━━━━━\n"
-            f"⏰ 将在会议开始前 {config.get('reminder_minutes', 15)} 分钟提醒"
+            f"🤖 正在自动设置提醒..."
         )
         await notify_owner(context, config, summary)
 
-    # ── 步骤3: 设置会前提醒 ──
-    reminder_minutes = config.get("reminder_minutes", 15)
-    reminder_dt = meeting_dt - timedelta(minutes=reminder_minutes)
-    now = datetime.now()
-
-    if reminder_dt > now:
-        delay = (reminder_dt - now).total_seconds()
-        task_id = f"meeting_reminder_{meeting_dt.timestamp()}"
-
-        task = asyncio.create_task(
-            _meeting_reminder(
-                task_id, delay, meeting_name, meeting_dt, location, config, context
-            )
-        )
-        _reminder_tasks[task_id] = task
-        task.add_done_callback(lambda t: _reminder_tasks.pop(task_id, None))
-        logger.info(
-            f"[智能群助手] 已设置会议 {meeting_name} 的会前提醒，"
-            f"将于 {reminder_dt.strftime('%m/%d %H:%M')} 触发"
-        )
-    else:
-        logger.warning(
-            f"[智能群助手] 提醒时间 {reminder_dt} 已过，"
-            f"会议 {meeting_name} 的提醒将立即发送"
-        )
-        await _send_meeting_reminder(
-            meeting_name, meeting_dt, location, config, context
-        )
-
-
-async def _meeting_reminder(
-    task_id: str,
-    delay: float,
-    meeting_name: str,
-    meeting_dt: datetime,
-    location: str,
-    config: dict,
-    context,
-) -> None:
-    """会前提醒延迟任务。"""
+    # ── 步骤3: 通过 Agent 调用 reminder 插件创建提醒 ──
     try:
-        await asyncio.sleep(delay)
-        await _send_meeting_reminder(
-            meeting_name, meeting_dt, location, config, context
+        provider_id = await context.get_current_chat_provider_id(
+            event.unified_msg_origin
         )
-    except asyncio.CancelledError:
-        logger.info(f"[智能群助手] 会议提醒已取消: {meeting_name}")
+        prompt = (
+            f"请使用 set_reminder_or_task 工具，创建一个会议提醒：\n"
+            f"- 提醒内容：参加「{meeting_name}」会议，地点：{location}"
+            f"{'，备注：' + notes if notes else ''}\n"
+            f"- 提醒时间：{formatted_time}\n"
+            f"- 不是任务(is_task=no)，就是普通提醒\n"
+            f"- 提醒对象：用户\n"
+        )
+        await context.tool_loop_agent(
+            event=event,
+            chat_provider_id=provider_id,
+            prompt=prompt,
+            max_steps=5,
+            tool_call_timeout=60,
+        )
+        logger.info(f"[智能群助手] 已通过 reminder 插件创建会议提醒: {meeting_name}")
     except Exception as e:
-        logger.error(f"[智能群助手] 会议提醒任务异常: {e}")
-
-
-async def _send_meeting_reminder(
-    meeting_name: str,
-    meeting_dt: datetime,
-    location: str,
-    config: dict,
-    context,
-) -> None:
-    """发送会前提醒（戳一戳 + 消息）。"""
-    owner_qq = config.get("owner_qq", "")
-    if not owner_qq:
-        return
-
-    await poke_user(context, owner_qq)
-
-    formatted_time = meeting_dt.strftime("%H:%M")
-    message = (
-        f"⏰ 【会前提醒】\n"
-        f"会议「{meeting_name}」将在 {formatted_time} 于 {location} 开始，请注意参加。"
-    )
-    await notify_owner(context, config, message)
-    logger.info(f"[智能群助手] 已发送会议 {meeting_name} 的会前提醒")
-
-
-def cancel_all_reminders() -> None:
-    """取消所有待执行的会前提醒任务。"""
-    for task_id, task in list(_reminder_tasks.items()):
-        if not task.done():
-            task.cancel()
-    _reminder_tasks.clear()
-    logger.info("[智能群助手] 已取消所有会前提醒")
+        logger.error(f"[智能群助手] 调用 reminder 插件创建提醒失败: {e}")
+        # 兜底：通知主人手动设置
+        await notify_owner(
+            context,
+            config,
+            f"⚠️ 自动设置提醒失败，请手动操作：/提醒我 {formatted_time} 参加{meeting_name}",
+        )
