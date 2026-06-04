@@ -1,2 +1,0 @@
-# astrbot_plugin_smart_group_assistant
-可能只适用于我个人的astrbot插件
